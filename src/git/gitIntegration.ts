@@ -1,19 +1,13 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { execSync, exec } from 'child_process';
+import { execSync } from 'child_process';
 import { ConfigManager } from '../config/configManager';
 
 export interface StagedFile {
     path: string;
     status: 'added' | 'modified' | 'deleted' | 'renamed';
     language: 'python' | 'csharp' | 'unknown';
-}
-
-export interface GitCommitState {
-    repository: vscode.ScmRepository;
-    indexChanges: StagedFile[];
-    headChanges: any[];
 }
 
 const HOOK_SCRIPT = `#!/bin/bash
@@ -42,13 +36,12 @@ exit 0
 
 export class GitIntegration {
     private static instance: GitIntegration;
-    private scmProvider: vscode.SourceControl;
     private configManager: ConfigManager;
     private hookInstalled: boolean = false;
     private commitListeners: vscode.Disposable[] = [];
     private workspaceRoot: string;
 
-    private constructor(workspaceRoot: string) {
+    constructor(workspaceRoot: string) {
         this.workspaceRoot = workspaceRoot;
         this.configManager = ConfigManager.getInstance();
         this.configManager.initialize(workspaceRoot);
@@ -62,70 +55,10 @@ export class GitIntegration {
     }
 
     public async initialize(): Promise<void> {
-        await this.setupSourceControl();
         this.checkHookInstalled();
     }
 
-    private async setupSourceControl(): Promise<void> {
-        const scm = vscode.scm;
-        if (!scm) {
-            console.log('No SCM provider available');
-            return;
-        }
-
-        const repositories = scm.repositories;
-        if (repositories.length === 0) {
-            console.log('No repositories found');
-            return;
-        }
-
-        for (const repo of repositories) {
-            this.listenToRepository(repo);
-        }
-    }
-
-    private listenToRepository(repo: vscode.ScmRepository): void {
-        const changeDisposable = repo.state.onDidChange(() => {
-            this.handleRepositoryChange(repo);
-        });
-        this.commitListeners.push(changeDisposable);
-
-        const commitDisposable = repo.inputBox.onDidChange(() => {
-            if (this.configManager.shouldAutoRunOnCommit()) {
-                this.handleCommitAttempt(repo);
-            }
-        });
-        this.commitListeners.push(commitDisposable);
-    }
-
-    private async handleRepositoryChange(repo: vscode.ScmRepository): Promise<void> {
-        const stagedFiles = await this.getStagedFiles(repo);
-        console.log('Repository changed, staged files:', stagedFiles.map(f => f.path).join(', '));
-    }
-
-    private async handleCommitAttempt(repo: vscode.ScmRepository): Promise<void> {
-        const stagedFiles = await this.getStagedFiles(repo);
-
-        if (stagedFiles.length === 0) {
-            return;
-        }
-
-        const { runChecks } = await import('../analyzer/engine');
-        try {
-            const results = await runChecks(stagedFiles, this.workspaceRoot);
-
-            const hasErrors = results.some(r => r.errors.length > 0);
-            if (hasErrors) {
-                vscode.window.showErrorMessage('Code Quality: Commit blocked due to quality violations. Run "Code Quality: Run Quality Checks" for details.');
-                throw new Error('Code quality checks failed');
-            }
-        } catch (error) {
-            vscode.window.showErrorMessage(`Code Quality: ${error instanceof Error ? error.message : 'Commit blocked due to quality violations'}`);
-            throw error;
-        }
-    }
-
-    public async getStagedFiles(repo?: vscode.ScmRepository): Promise<StagedFile[]> {
+    public async getStagedFiles(repo?: any): Promise<StagedFile[]> {
         try {
             const stagedFiles: StagedFile[] = [];
 
@@ -160,13 +93,6 @@ export class GitIntegration {
         }
     }
 
-    private detectLanguage(filePath: string): StagedFile['language'] {
-        const ext = path.extname(filePath).toLowerCase();
-        if (ext === '.py') return 'python';
-        if (ext === '.cs') return 'csharp';
-        return 'unknown';
-    }
-
     public async getStagedFilesOnly(): Promise<StagedFile[]> {
         return this.getStagedFiles();
     }
@@ -195,6 +121,13 @@ export class GitIntegration {
             console.error('Failed to get tracked files:', error);
             return [];
         }
+    }
+
+    private detectLanguage(filePath: string): StagedFile['language'] {
+        const ext = path.extname(filePath).toLowerCase();
+        if (ext === '.py') return 'python';
+        if (ext === '.cs') return 'csharp';
+        return 'unknown';
     }
 
     private checkHookInstalled(): void {
@@ -283,10 +216,8 @@ export class GitIntegration {
     }
 }
 
-export async function createGitIntegration(workspaceRoot: string): Promise<GitIntegration> {
-    const instance = GitIntegration.getInstance(workspaceRoot);
-    await instance.initialize();
-    return instance;
+export function createGitIntegration(workspaceRoot: string): GitIntegration {
+    return GitIntegration.getInstance(workspaceRoot);
 }
 
 export async function getStagedFiles(workspaceRoot: string): Promise<StagedFile[]> {

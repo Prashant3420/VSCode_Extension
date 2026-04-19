@@ -1,6 +1,5 @@
 import * as path from 'path';
 import * as fs from 'fs';
-import { execSync } from 'child_process';
 import { StagedFile } from '../git/gitIntegration';
 import { ConfigManager } from '../config/configManager';
 
@@ -309,11 +308,4 @@ async function validateDependencyPatterns(
     result.success = result.errors.length === 0;
     result.executionTime = Date.now() - startTime;
     return result;
-}
-
-export function analyzeSemantically(
-    stagedFiles: StagedFile[],
-    workspaceRoot: string
-): Promise<SemanticAnalysisResult[]> {
-    return analyzeSemantically(stagedFiles, workspaceRoot);
 }

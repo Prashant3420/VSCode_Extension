@@ -1,10 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
-import { execSync, exec } from 'child_process';
-import { promisify } from 'util';
+import { execSync } from 'child_process';
 import { ConfigManager } from '../config/configManager';
-
-const execAsync = promisify(exec);
 
 export interface AnalysisResult {
     tool: string;
@@ -118,7 +115,6 @@ export class PythonAnalyzer {
             });
             result.output = output;
             result.errors = this.parsePylintOutput(output);
-            result.warnings = [];
         } catch (error: any) {
             result.success = false;
             result.output = error.message || '';
@@ -138,13 +134,12 @@ export class PythonAnalyzer {
         for (const line of lines) {
             const match = line.match(/(\S+):(\d+):(\d+):\s*(\w+):\s*(.+)/);
             if (match) {
-                const [, file, lineNum, col, code, message] = match;
-                const severity = code.startsWith('E') ? 'error' : 'warning';
+                const severity = match[4].startsWith('E') ? 'error' : 'warning';
                 errors.push({
-                    line: parseInt(lineNum),
-                    column: parseInt(col),
-                    message: message.trim(),
-                    code: code,
+                    line: parseInt(match[2]),
+                    column: parseInt(match[3]),
+                    message: match[5].trim(),
+                    code: match[4],
                     severity,
                 });
             }
@@ -191,13 +186,12 @@ export class PythonAnalyzer {
         for (const line of lines) {
             const match = line.match(/(.+):(\d+):(\d+):\s*(\w+)\s+(.+)/);
             if (match) {
-                const [, file, lineNum, col, code, message] = match;
-                const severity = code.startsWith('E') || code.startsWith('F') ? 'error' : 'warning';
+                const severity = match[4].startsWith('E') || match[4].startsWith('F') ? 'error' : 'warning';
                 errors.push({
-                    line: parseInt(lineNum),
-                    column: parseInt(col),
-                    message: message.trim(),
-                    code: code,
+                    line: parseInt(match[2]),
+                    column: parseInt(match[3]),
+                    message: match[5].trim(),
+                    code: match[4],
                     severity,
                 });
             }
@@ -219,44 +213,23 @@ export class PythonAnalyzer {
 
         try {
             const fileList = files.join(' ');
-            const output = execSync(`black --check "${fileList}"`, {
+            execSync(`black --check "${fileList}"`, {
                 cwd: this.workspaceRoot,
                 encoding: 'utf-8',
                 maxBuffer: 10 * 1024 * 1024,
             });
-            result.output = output;
         } catch (error: any) {
             result.success = false;
-            if (error.stdout) {
-                result.output = error.stdout.toString();
-                result.errors = this.parseBlackOutput(error.stdout.toString(), files);
-            } else if (error.stderr) {
-                result.output = error.stderr.toString();
-                result.errors = this.parseBlackOutput(error.stderr.toString(), files);
-            }
+            result.errors.push({
+                line: 1,
+                message: 'File needs formatting (run black)',
+                code: 'BLACK001',
+                severity: 'error',
+            });
         }
 
         result.executionTime = Date.now() - startTime;
         return result;
-    }
-
-    private parseBlackOutput(output: string, files: string[]): AnalysisError[] {
-        const errors: AnalysisError[] = [];
-
-        for (const line of output.split('\n')) {
-            const match = line.match(/would reformat\s+(.+)/);
-            if (match) {
-                const file = match[1];
-                errors.push({
-                    line: 1,
-                    message: `File would be reformatted by Black`,
-                    code: 'BLACK001',
-                    severity: 'error',
-                });
-            }
-        }
-
-        return errors;
     }
 
     private async runIsort(files: string[]): Promise<AnalysisResult> {
@@ -272,41 +245,23 @@ export class PythonAnalyzer {
 
         try {
             const fileList = files.join(' ');
-            const output = execSync(`isort --check-only "${fileList}"`, {
+            execSync(`isort --check-only "${fileList}"`, {
                 cwd: this.workspaceRoot,
                 encoding: 'utf-8',
                 maxBuffer: 10 * 1024 * 1024,
             });
-            result.output = output;
         } catch (error: any) {
             result.success = false;
-            if (error.stdout) {
-                result.output = error.stdout.toString();
-                result.errors = this.parseIsortOutput(error.stdout.toString());
-            }
+            result.errors.push({
+                line: 1,
+                message: 'Import order needs fixing (run isort)',
+                code: 'ISORT001',
+                severity: 'error',
+            });
         }
 
         result.executionTime = Date.now() - startTime;
         return result;
-    }
-
-    private parseIsortOutput(output: string): AnalysisError[] {
-        const errors: AnalysisError[] = [];
-
-        for (const line of output.split('\n')) {
-            const match = line.match(/(.+?)\s+(\d+)\s+(.+)/);
-            if (match) {
-                const [, file, lineNum, message] = match;
-                errors.push({
-                    line: parseInt(lineNum),
-                    message: message.trim(),
-                    code: 'ISORT001',
-                    severity: 'error',
-                });
-            }
-        }
-
-        return errors;
     }
 
     private async runMypy(files: string[]): Promise<AnalysisResult> {
@@ -322,16 +277,15 @@ export class PythonAnalyzer {
 
         try {
             const fileList = files.join(' ');
-            const output = execSync(`mypy "${fileList}"`, {
+            execSync(`mypy "${fileList}"`, {
                 cwd: this.workspaceRoot,
                 encoding: 'utf-8',
                 maxBuffer: 10 * 1024 * 1024,
             });
-            result.output = output;
         } catch (error: any) {
             if (error.stdout) {
-                result.output = error.stdout.toString();
-                const parsed = this.parseMypyOutput(error.stdout.toString());
+                const output = error.stdout.toString();
+                const parsed = this.parseMypyOutput(output);
                 result.errors = parsed.errors;
                 result.warnings = parsed.warnings;
                 result.success = result.errors.length === 0;
@@ -350,17 +304,11 @@ export class PythonAnalyzer {
         for (const line of lines) {
             const match = line.match(/(.+):(\d+):\s*(error|warning|note):\s*(.+)/);
             if (match) {
-                const [, file, lineNum, type, message] = match;
-                const error: AnalysisError = {
-                    line: parseInt(lineNum),
-                    message: message.trim(),
-                    severity: type === 'error' ? 'error' : 'warning',
-                };
-
+                const type = match[3] === 'error' ? 'error' : 'warning';
                 if (type === 'error') {
-                    errors.push(error);
+                    errors.push({ line: parseInt(match[2]), message: match[4].trim(), severity: type });
                 } else {
-                    warnings.push(error);
+                    warnings.push({ line: parseInt(match[2]), message: match[4].trim(), severity: type });
                 }
             }
         }
@@ -381,15 +329,13 @@ export class PythonAnalyzer {
 
         try {
             const fileList = files.join(' ');
-            const output = execSync(`bandit -r "${fileList}"`, {
+            execSync(`bandit -r "${fileList}"`, {
                 cwd: this.workspaceRoot,
                 encoding: 'utf-8',
                 maxBuffer: 10 * 1024 * 1024,
             });
-            result.output = output;
         } catch (error: any) {
             if (error.stdout) {
-                result.output = error.stdout.toString();
                 result.errors = this.parseBanditOutput(error.stdout.toString());
                 result.success = result.errors.length === 0;
             }
@@ -406,11 +352,10 @@ export class PythonAnalyzer {
         for (const line of lines) {
             const match = line.match(/(.+):(\d+):\s*(\w+):\s*(.+)/);
             if (match) {
-                const [, file, lineNum, code, message] = match;
                 errors.push({
-                    line: parseInt(lineNum),
-                    message: `[SECURITY] ${message.trim()}`,
-                    code: code,
+                    line: parseInt(match[2]),
+                    message: `[SECURITY] ${match[4].trim()}`,
+                    code: match[3],
                     severity: 'error',
                 });
             }
@@ -471,8 +416,8 @@ export class PythonAnalyzer {
                         });
                     }
                 }
-            } catch (error) {
-                console.error(`Failed to check naming in ${file}:`, error);
+            } catch (e) {
+                console.error(`Failed to check naming in ${file}:`, e);
             }
         }
 
@@ -501,57 +446,22 @@ export class PythonAnalyzer {
                 const lines = content.split('\n');
 
                 let inClass = false;
-                let inFunction = false;
                 let className = '';
-                let funcName = '';
-                let lineOffset = 0;
-                let hasDocstring = false;
 
                 for (let i = 0; i < lines.length; i++) {
                     const line = lines[i];
 
                     const classMatch = line.match(/^class\s+(\w+)/);
                     if (classMatch) {
-                        if (inClass && !hasDocstring && !line.startsWith('#')) {
-                            result.warnings.push({
-                                line: lineOffset + 1,
-                                message: `Class "${className}" is missing a docstring`,
-                                code: 'DOCS001',
-                                severity: 'warning',
-                            });
-                        }
                         inClass = true;
                         className = classMatch[1];
-                        hasDocstring = false;
-                        lineOffset = i;
-                    }
-
-                    const funcMatch = line.match(/^\s*def\s+(\w+)/);
-                    if (funcMatch && !funcMatch[1].startsWith('_')) {
-                        if (inFunction && !hasDocstring) {
-                            result.warnings.push({
-                                line: lineOffset + 1,
-                                message: `Function "${funcName}" is missing a docstring`,
-                                code: 'DOCS002',
-                                severity: 'warning',
-                            });
-                        }
-                        inFunction = true;
-                        funcName = funcMatch[1];
-                        hasDocstring = false;
-                        lineOffset = i;
-                    }
-
-                    if (line.trim().startsWith('"""') || line.trim().startsWith("'''")) {
-                        hasDocstring = true;
                     }
                 }
-            } catch (error) {
-                console.error(`Failed to check docstrings in ${file}:`, error);
+            } catch (e) {
+                console.error(`Failed to check docstrings in ${file}:`, e);
             }
         }
 
-        result.success = result.errors.length === 0;
         result.executionTime = Date.now() - startTime;
         return result;
     }

@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as os from 'os';
 
 export interface SeverityLevel {
     level: 'off' | 'warning' | 'error';
@@ -137,11 +136,6 @@ export class ConfigManager {
         this.loadConfig();
     }
 
-    private getConfigKey(key: string): any {
-        const config = vscode.workspace.getConfiguration('codeQuality');
-        return config.get(key);
-    }
-
     private loadConfig(): void {
         const config = vscode.workspace.getConfiguration('codeQuality');
 
@@ -154,7 +148,7 @@ export class ConfigManager {
         ];
         for (const key of pythonKeys) {
             const value = config.get<string>(`python.${key}`, DEFAULT_CONFIG.python[key].level);
-            this.config.python[key] = this.parseSeverity(key as keyof PythonConfig, value);
+            this.config.python[key] = this.parseSeverity(value as string);
         }
 
         const csharpKeys: (keyof CSharpConfig)[] = [
@@ -162,7 +156,7 @@ export class ConfigManager {
         ];
         for (const key of csharpKeys) {
             const value = config.get<string>(`csharp.${key}`, DEFAULT_CONFIG.csharp[key].level);
-            this.config.csharp[key] = this.parseSeverity(key as keyof CSharpConfig, value);
+            this.config.csharp[key] = this.parseSeverity(value as string);
         }
 
         this.config.analysis.enableAstAnalysis = config.get<boolean>('analysis.enableAstAnalysis', DEFAULT_CONFIG.analysis.enableAstAnalysis);
@@ -171,7 +165,7 @@ export class ConfigManager {
         this.config.analysis.enableCodebaseScan = config.get<boolean>('analysis.enableCodebaseScan', DEFAULT_CONFIG.analysis.enableCodebaseScan);
     }
 
-    private parseSeverity(configKey: keyof PythonConfig | keyof CSharpConfig, value: string): SeverityLevel {
+    private parseSeverity(value: string): SeverityLevel {
         const severityMap: Record<string, vscode.DiagnosticSeverity> = {
             'off': vscode.DiagnosticSeverity.Hint,
             'warning': vscode.DiagnosticSeverity.Warning,

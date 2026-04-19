@@ -1,10 +1,9 @@
-import * as vscode from 'vscode';
 import { ConfigManager } from '../config/configManager';
-import { analyzePython, AnalysisResult as PythonAnalysisResult } from '../python/pythonAnalyzer';
-import { analyzeCSharp, AnalysisResult as CSharpAnalysisResult } from '../csharp/csharpAnalyzer';
-import { analyzeWithAST, ASTAnalysisResult } from './astLayer';
-import { analyzeSemantically, SemanticAnalysisResult } from './semanticLayer';
-import { runDiffImpactAnalysis, ImpactAnalysisResult } from '../impact/diffImpactAnalyzer';
+import { analyzePython } from '../python/pythonAnalyzer';
+import { analyzeCSharp } from '../csharp/csharpAnalyzer';
+import { analyzeWithAST } from './astLayer';
+import { analyzeSemantically } from './semanticLayer';
+import { runDiffImpactAnalysis } from '../impact/diffImpactAnalyzer';
 import { reportDiagnostics, DiagnosticReport } from '../diagnostics/diagnosticsEngine';
 
 export interface StagedFile {
@@ -16,7 +15,7 @@ export interface StagedFile {
 export interface AnalysisResult {
     tool: string;
     success: boolean;
-    errors: AnalysisError[];
+    errors: any[];
     warnings: AnalysisError[];
     output: string;
     executionTime: number;
@@ -80,51 +79,108 @@ export class AnalyzerEngine {
 
         if (pythonFiles.length > 0 || csharpFiles.length > 0) {
             if (analysisConfig.enableAstAnalysis) {
-                results.astResults = await this.runASTAnalysis(stagedFiles);
-            }
-
-            if (results.astResults.some(r => !r.success)) {
-                await this.processResults(results, 'ast');
-                results.success = false;
-                results.executionTime = Date.now() - startTime;
-                results.diagnosticReport = reportDiagnostics(results, this.workspaceRoot);
-                return results;
+                for (const file of stagedFiles) {
+                    const astResults = await analyzeWithAST(file.path, file.language, this.workspaceRoot);
+                    for (const r of astResults) {
+                        results.astResults.push({
+                            tool: r.tool,
+                            success: r.success,
+                            errors: r.errors.map(e => ({ ...e, file: e.file || file.path })),
+                            warnings: r.warnings.map(w => ({ ...w, file: w.file || file.path })),
+                            output: r.output,
+                            executionTime: r.executionTime,
+                            layer: 'ast',
+                        });
+                    }
+                }
             }
         }
 
         if (pythonFiles.length > 0) {
-            const pyResults = await this.runLintAnalysis(pythonFiles, 'python');
-            results.lintResults.push(...pyResults);
+            const pyResults = await analyzePython(pythonFiles, this.workspaceRoot);
+            for (const result of pyResults) {
+                results.lintResults.push({
+                    ...result,
+                    layer: 'lint' as const,
+                    errors: result.errors.map(e => ({ ...e, file: pythonFiles[0] })),
+                    warnings: result.warnings.map(w => ({ ...w, file: pythonFiles[0] })),
+                });
+            }
         }
 
         if (csharpFiles.length > 0) {
-            const csResults = await this.runLintAnalysis(csharpFiles, 'csharp');
-            results.lintResults.push(...csResults);
-        }
-
-        if (results.lintResults.some(r => !r.success)) {
-            await this.processResults(results, 'lint');
-            results.success = false;
-            results.executionTime = Date.now() - startTime;
-            results.diagnosticReport = reportDiagnostics(results, this.workspaceRoot);
-            return results;
-        }
-
-        if (analysisConfig.enableSemanticAnalysis) {
-            results.semanticResults = await this.runSemanticAnalysis(stagedFiles);
-            if (results.semanticResults.some(r => !r.success)) {
-                results.totalErrors += results.semanticResults.filter(r => !r.success).length;
+            const csResults = await analyzeCSharp(csharpFiles, this.workspaceRoot);
+            for (const result of csResults) {
+                results.lintResults.push({
+                    ...result,
+                    layer: 'lint' as const,
+                    errors: result.errors.map(e => ({ ...e, file: csharpFiles[0] })),
+                    warnings: result.warnings.map(w => ({ ...w, file: csharpFiles[0] })),
+                });
             }
         }
 
-        if (analysisConfig.enableImpactAnalysis) {
-            results.impactResults = await runDiffImpactAnalysis(stagedFiles, this.workspaceRoot);
-            if (results.impactResults.some(r => !r.success)) {
-                results.totalErrors += results.impactResults.filter(r => !r.success).length;
+        if (analysisConfig.enableSemanticAnalysis && stagedFiles.length > 0) {
+            const semanticResults = await analyzeSemantically(stagedFiles, this.workspaceRoot);
+            for (const r of semanticResults) {
+                results.semanticResults.push({
+                    tool: r.tool,
+                    success: r.success,
+                    errors: r.errors.map(e => ({ ...e, file: e.file || '' })),
+                    warnings: r.warnings.map(w => ({ ...w, file: w.file || '' })),
+                    output: r.output,
+                    executionTime: r.executionTime,
+                    layer: 'semantic',
+                });
             }
         }
 
-        await this.processResults(results, 'all');
+        if (analysisConfig.enableImpactAnalysis && stagedFiles.length > 0) {
+            const impactResults = await runDiffImpactAnalysis(stagedFiles, this.workspaceRoot);
+            for (const r of impactResults) {
+                results.impactResults.push({
+                    tool: r.tool,
+                    success: r.success,
+                    errors: r.errors.map(e => ({ ...e, file: e.file || '' })),
+                    warnings: r.warnings.map(w => ({ ...w, file: w.file || '' })),
+                    output: r.output,
+                    executionTime: r.executionTime,
+                    layer: 'impact',
+                });
+            }
+        }
+
+        for (const result of results.lintResults) {
+            results.totalErrors += result.errors.length;
+            results.totalWarnings += result.warnings.length;
+            if (result.errors.length > 0) {
+                results.success = false;
+            }
+        }
+
+        for (const result of results.astResults) {
+            results.totalErrors += result.errors.length;
+            results.totalWarnings += result.warnings.length;
+            if (result.errors.length > 0) {
+                results.success = false;
+            }
+        }
+
+        for (const result of results.semanticResults) {
+            results.totalErrors += result.errors.length;
+            results.totalWarnings += result.warnings.length;
+            if (result.errors.length > 0) {
+                results.success = false;
+            }
+        }
+
+        for (const result of results.impactResults) {
+            results.totalErrors += result.errors.length;
+            results.totalWarnings += result.warnings.length;
+            if (result.errors.length > 0) {
+                results.success = false;
+            }
+        }
 
         if (this.configManager.isStrictMode() && results.totalErrors > 0) {
             results.success = false;
@@ -134,106 +190,6 @@ export class AnalyzerEngine {
         results.diagnosticReport = reportDiagnostics(results, this.workspaceRoot);
 
         return results;
-    }
-
-    private async runLintAnalysis(files: string[], language: 'python' | 'csharp'): Promise<AnalysisResult[]> {
-        const results: AnalysisResult[] = [];
-
-        if (language === 'python') {
-            const pyResults = await analyzePython(files, this.workspaceRoot);
-            for (const result of pyResults) {
-                results.push({
-                    ...result,
-                    layer: 'lint' as const,
-                    errors: result.errors.map(e => ({ ...e, file: files[0] })),
-                    warnings: result.warnings.map(w => ({ ...w, file: files[0] })),
-                });
-            }
-        } else {
-            const csResults = await analyzeCSharp(files, this.workspaceRoot);
-            for (const result of csResults) {
-                results.push({
-                    ...result,
-                    layer: 'lint' as const,
-                    errors: result.errors.map(e => ({ ...e, file: files[0] })),
-                    warnings: result.warnings.map(w => ({ ...w, file: files[0] })),
-                });
-            }
-        }
-
-        return results;
-    }
-
-    private async runASTAnalysis(stagedFiles: StagedFile[]): Promise<AnalysisResult[]> {
-        const results: AnalysisResult[] = [];
-
-        for (const file of stagedFiles) {
-            const astResults = await analyzeWithAST(file.path, file.language, this.workspaceRoot);
-            results.push(...astResults);
-        }
-
-        return results;
-    }
-
-    private async runSemanticAnalysis(stagedFiles: StagedFile[]): Promise<AnalysisResult[]> {
-        const results: AnalysisResult[] = [];
-
-        const semanticResults = await analyzeSemantically(stagedFiles, this.workspaceRoot);
-        results.push(...semanticResults);
-
-        return results;
-    }
-
-    private async processResults(results: FullAnalysisResult, phase: 'lint' | 'ast' | 'semantic' | 'impact' | 'all'): void {
-        switch (phase) {
-            case 'lint':
-                for (const result of results.lintResults) {
-                    results.totalErrors += result.errors.length;
-                    results.totalWarnings += result.warnings.length;
-                    if (result.errors.length > 0) {
-                        results.success = false;
-                    }
-                }
-                break;
-            case 'ast':
-                for (const result of results.astResults) {
-                    results.totalErrors += result.errors.length;
-                    results.totalWarnings += result.warnings.length;
-                    if (result.errors.length > 0) {
-                        results.success = false;
-                    }
-                }
-                break;
-            case 'semantic':
-                for (const result of results.semanticResults) {
-                    results.totalErrors += result.errors.length;
-                    results.totalWarnings += result.warnings.length;
-                    if (result.errors.length > 0) {
-                        results.success = false;
-                    }
-                }
-                break;
-            case 'impact':
-                for (const result of results.impactResults) {
-                    results.totalErrors += result.errors.length;
-                    results.totalWarnings += result.warnings.length;
-                    if (result.errors.length > 0) {
-                        results.success = false;
-                    }
-                }
-                break;
-            case 'all':
-                this.processResults(results, 'lint');
-                this.processResults(results, 'ast');
-                this.processResults(results, 'semantic');
-                this.processResults(results, 'impact');
-                break;
-        }
-    }
-
-    public async runChecks(stagedFiles: StagedFile[], workspaceRoot: string): Promise<FullAnalysisResult> {
-        const engine = new AnalyzerEngine(workspaceRoot);
-        return engine.runAnalysis(stagedFiles);
     }
 }
 
@@ -254,14 +210,14 @@ export async function quickLint(stagedFiles: StagedFile[], workspaceRoot: string
     if (pythonFiles.length > 0) {
         const pyResults = await analyzePython(pythonFiles, workspaceRoot);
         for (const result of pyResults) {
-            errors.push(...result.errors);
+            errors.push(...result.errors as any);
         }
     }
 
     if (csharpFiles.length > 0) {
         const csResults = await analyzeCSharp(csharpFiles, workspaceRoot);
         for (const result of csResults) {
-            errors.push(...result.errors);
+            errors.push(...result.errors as any);
         }
     }
 

@@ -1,5 +1,3 @@
-import * as vscode from 'vscode';
-import * as path from 'path';
 import { FullAnalysisResult } from '../analyzer/engine';
 
 export interface DiagnosticReport {
@@ -19,10 +17,7 @@ export interface DiagnosticItem {
     layer: string;
 }
 
-export function reportDiagnostics(
-    results: FullAnalysisResult,
-    workspaceRoot: string
-): DiagnosticReport {
+export function reportDiagnostics(results: FullAnalysisResult, workspaceRoot: string): DiagnosticReport {
     const allDiagnostics: DiagnosticItem[] = [];
 
     const addResults = (results: any[], layer: string) => {
@@ -95,12 +90,15 @@ function generateSummary(results: FullAnalysisResult, diagnostics: DiagnosticIte
 
         for (const [file, diags] of grouped) {
             summary += `\n${file}:\n`;
-            for (const diag of diags) {
+            for (const diag of diags.slice(0, 5)) {
                 const icon = diag.severity === 'error' ? '✗' : '⚠';
                 summary += `  ${icon} L${diag.line}: ${diag.message}\n`;
                 if (diag.code) {
                     summary += `     [${diag.code}]\n`;
                 }
+            }
+            if (diags.length > 5) {
+                summary += `  ... and ${diags.length - 5} more errors\n`;
             }
         }
     }
@@ -108,115 +106,14 @@ function generateSummary(results: FullAnalysisResult, diagnostics: DiagnosticIte
     return summary;
 }
 
-export function showDiagnosticsInProblemsPanel(
-    diagnostics: DiagnosticItem[],
-    workspaceRoot: string
-): void {
-    const diagnosticCollection = vscode.languages.createDiagnosticCollection('code-quality');
+export function generateSummary2(results: FullAnalysisResult): string {
+    let summary = '';
 
-    const groupedDiagnostics = new Map<string, vscode.Diagnostic[]>();
-
-    for (const diag of diagnostics) {
-        const filePath = path.join(workspaceRoot, diag.file);
-
-        if (!groupedDiagnostics.has(filePath)) {
-            groupedDiagnostics.set(filePath, []);
-        }
-
-        const range = new vscode.Range(
-            new vscode.Position(diag.line - 1, diag.column || 0),
-            new vscode.Position(diag.line - 1, (diag.column || 0) + 1)
-        );
-
-        const vscodeDiag = new vscode.Diagnostic(range, diag.message);
-
-        if (diag.code) {
-            vscodeDiag.code = diag.code;
-        }
-
-        vscodeDiag.severity = diag.severity === 'error'
-            ? vscode.DiagnosticSeverity.Error
-            : vscode.DiagnosticSeverity.Warning;
-
-        groupedDiagnostics.get(filePath)!.push(vscodeDiag);
-    }
-
-    for (const [file, diags] of groupedDiagnostics) {
-        const uri = vscode.Uri.file(file);
-        diagnosticCollection.set(uri, diags);
-    }
-}
-
-export function clearDiagnostics(): void {
-    const diagnosticCollection = vscode.languages.createDiagnosticCollection('code-quality');
-    diagnosticCollection.clear();
-}
-
-export function showOutputPanel(
-    report: DiagnosticReport,
-    success: boolean
-): void {
-    const outputChannel = vscode.window.createOutputChannel('Code Quality Guardian');
-
-    outputChannel.appendLine('');
-    outputChannel.appendLine('═'.repeat(50));
-    outputChannel.appendLine(report.summary);
-    outputChannel.appendLine('═'.repeat(50));
-
-    if (!success) {
-        outputChannel.appendLine('');
-        outputChannel.appendLine('COMMIT BLOCKED due to quality violations');
-    }
-
-    outputChannel.show(true);
-}
-
-export function showErrorNotification(message: string): void {
-    vscode.window.showErrorMessage(message);
-}
-
-export function showWarningNotification(message: string): void {
-    vscode.window.showWarningMessage(message);
-}
-
-export function showInfoNotification(message: string): void {
-    vscode.window.showInformationMessage(message);
-}
-
-export async function showFormattedErrors(
-    results: FullAnalysisResult,
-    workspaceRoot: string
-): Promise<void> {
-    const report = reportDiagnostics(results, workspaceRoot);
-
-    showDiagnosticsInProblemsPanel([...report.errors, ...report.warnings], workspaceRoot);
-    showOutputPanel(report, results.success);
-
-    if (!results.success) {
-        showErrorNotification(`Code Quality: ${report.errors.length} errors, ${report.warnings.length} warnings found`);
-
-        if (vscode.window.activeTextEditor) {
-            const firstError = report.errors[0];
-            if (firstError) {
-                const filePath = path.join(workspaceRoot, firstError.file);
-                const doc = await vscode.workspace.openTextDocument(filePath);
-
-                await vscode.window.showTextDocument(doc, {
-                    viewColumn: vscode.ViewColumn.One,
-                    preserveFocus: false,
-                });
-
-                const position = new vscode.Position(firstError.line - 1, firstError.column || 0);
-                const selection = new vscode.Selection(position, position);
-
-                const editor = vscode.window.activeTextEditor;
-                if (editor) {
-                    editor.selection = selection;
-                    editor.revealRangeInScroll(selection);
-                }
-            }
-        }
+    if (results.success) {
+        summary = '✓ All checks passed';
     } else {
-        showInfoNotification('Code Quality: All checks passed');
+        summary = `✗ ${results.totalErrors} errors, ${results.totalWarnings} warnings found`;
     }
+
+    return summary;
 }

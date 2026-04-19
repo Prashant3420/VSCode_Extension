@@ -1,11 +1,9 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 import { ConfigManager } from './config/configManager';
-import { GitIntegration, createGitIntegration, getStagedFiles, hasStagedChanges } from './git/gitIntegration';
-import { CodebaseScanner, runScan } from './scanner/codebaseScanner';
+import { GitIntegration } from './git/gitIntegration';
 import { runChecks, FullAnalysisResult } from './analyzer/engine';
-import { ConfigManager as ConfigManagerClass, StagedFile } from './config/configManager';
-import { showDiagnosticsInProblemsPanel, clearDiagnostics, showOutputPanel, showFormattedErrors, DiagnosticReport, reportDiagnostics } from './diagnostics/diagnosticsEngine';
+import { runScan } from './scanner/codebaseScanner';
+import { reportDiagnostics } from './diagnostics/diagnosticsEngine';
 
 let gitIntegration: GitIntegration | null = null;
 let outputChannel: vscode.OutputChannel;
@@ -25,7 +23,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const configManager = ConfigManager.getInstance();
     configManager.initialize(workspaceRoot);
 
-    gitIntegration = await createGitIntegration(workspaceRoot);
+    gitIntegration = new GitIntegration(workspaceRoot);
+    await gitIntegration.initialize();
 
     const profile = configManager.loadProjectProfile();
     if (!profile || !configManager.getAnalysisConfig().enableCodebaseScan) {
@@ -73,14 +72,7 @@ function registerCommands(context: vscode.ExtensionContext, workspaceRoot: strin
         const config = configManager.getConfig();
 
         const configJson = JSON.stringify(config, null, 2);
-        const doc = await vscode.workspace.openTextDocument({
-            content: configJson,
-            language: 'json',
-        });
-
-        await vscode.window.showTextDocument(doc, {
-            viewColumn: vscode.ViewColumn.One,
-        });
+        vscode.workspace.openTextDocument({ content: configJson, language: 'json' });
     });
 
     const enableAutoOnCommitCmd = vscode.commands.registerCommand('code-quality.enableAutoOnCommit', async () => {
@@ -110,15 +102,16 @@ async function runQualityChecks(workspaceRoot: string): Promise<FullAnalysisResu
     const outputChannel = vscode.window.createOutputChannel('Code Quality Guardian');
 
     outputChannel.clear();
-    outputChannel.appendLine('═'.repeat(50));
+    outputChannel.appendLine('='.repeat(50));
     outputChannel.appendLine('Code Quality Guardian - Running Checks');
-    outputChannel.appendLine('═'.repeat(50));
+    outputChannel.appendLine('='.repeat(50));
     outputChannel.appendLine('');
 
     const configManager = ConfigManager.getInstance();
     configManager.initialize(workspaceRoot);
 
-    const staged = await getStagedFiles(workspaceRoot);
+    const gitIntegration = new GitIntegration(workspaceRoot);
+    const staged = await gitIntegration.getStagedFilesOnly();
 
     if (staged.length === 0) {
         outputChannel.appendLine('No staged files found');
@@ -134,9 +127,6 @@ async function runQualityChecks(workspaceRoot: string): Promise<FullAnalysisResu
 
     const report = reportDiagnostics(results, workspaceRoot);
 
-    showDiagnosticsInProblemsPanel([...report.errors, ...report.warnings], workspaceRoot);
-    showOutputPanel(report, results.success);
-
     outputChannel.appendLine('');
     if (results.success) {
         outputChannel.appendLine('✓ All checks passed');
@@ -146,10 +136,6 @@ async function runQualityChecks(workspaceRoot: string): Promise<FullAnalysisResu
     outputChannel.appendLine(`Execution time: ${results.executionTime}ms`);
     outputChannel.show(true);
 
-    if (!results.success) {
-        showFormattedErrors(results, workspaceRoot);
-    }
-
     return results;
 }
 
@@ -157,5 +143,4 @@ export function deactivate(): void {
     if (gitIntegration) {
         gitIntegration.dispose();
     }
-    clearDiagnostics();
 }

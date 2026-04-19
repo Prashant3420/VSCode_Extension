@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs';
-import * as { execSync } from 'child_process';
+import { execSync } from 'child_process';
 
 export interface ASTAnalysisResult {
     tool: string;
@@ -41,26 +41,67 @@ async function analyzePythonAST(filePath: string, workspaceRoot: string): Promis
 
     try {
         const content = fs.readFileSync(fullPath, 'utf-8');
-
         const astErrors: AnalysisError[] = [];
 
         try {
-            const { parse } = await import('python-ast');
-            const ast = parse(content);
-            astErrors.push(...detectDeadCodePython(ast, filePath));
-            astErrors.push(...detectUnusedImportsPython(ast, filePath));
-            astErrors.push(...detectAntiPatternsPython(ast, filePath));
-        } catch (e) {
-            astErrors.push({
-                line: 1,
-                message: `Failed to parse Python AST: ${e instanceof Error ? e.message : 'Unknown error'}`,
-                code: 'AST001',
-                severity: 'error',
-                file: filePath,
+            const pythonScript = `
+import ast
+import sys
+try:
+    with open('${fullPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', 'r') as f:
+        source = f.read()
+    tree = ast.parse(source)
+    print("OK")
+except SyntaxError as e:
+    print(f"SYNTAX_ERROR:{e.lineno}:{e.msg}")
+    sys.exit(1)
+except Exception as e:
+    print(f"ERROR:{e}")
+    sys.exit(1)
+`;
+            const astResult = execSync(`python3 -c "${pythonScript.replace(/"/g, '\\"').replace(/\n/g, '; ')}"`, {
+                encoding: 'utf-8',
+                maxBuffer: 1024 * 1024,
             });
+
+            if (!astResult.includes('OK')) {
+                const match = astResult.match(/SYNTAX_ERROR:(\d+):(.+)/);
+                if (match) {
+                    astErrors.push({
+                        line: parseInt(match[1]),
+                        message: `Python syntax error: ${match[2]}`,
+                        code: 'AST001',
+                        severity: 'error',
+                        file: filePath,
+                    });
+                }
+            }
+        } catch (e: any) {
+            if (e.stdout?.toString().includes('SYNTAX_ERROR')) {
+                const match = e.stdout.toString().match(/SYNTAX_ERROR:(\d+):(.+)/);
+                if (match) {
+                    astErrors.push({
+                        line: parseInt(match[1]),
+                        message: `Python syntax error: ${match[2]}`,
+                        code: 'AST001',
+                        severity: 'error',
+                        file: filePath,
+                    });
+                }
+            } else {
+                astErrors.push({
+                    line: 1,
+                    message: `Failed to parse Python AST: ${e.message || 'Unknown error'}`,
+                    code: 'AST001',
+                    severity: 'error',
+                    file: filePath,
+                });
+            }
         }
 
-        astErrors.push(...detectPythonStructureIssues(content, filePath));
+        if (astErrors.length === 0) {
+            astErrors.push(...detectPythonStructureIssues(content, filePath));
+        }
 
         results.push({
             tool: 'python-ast',
@@ -92,21 +133,6 @@ async function analyzePythonAST(filePath: string, workspaceRoot: string): Promis
     return results;
 }
 
-function detectDeadCodePython(ast: any, filePath: string): AnalysisError[] {
-    const errors: AnalysisError[] = [];
-    return errors;
-}
-
-function detectUnusedImportsPython(ast: any, filePath: string): AnalysisError[] {
-    const errors: AnalysisError[] = [];
-    return errors;
-}
-
-function detectAntiPatternsPython(ast: any, filePath: string): AnalysisError[] {
-    const errors: AnalysisError[] = [];
-    return errors;
-}
-
 function detectPythonStructureIssues(content: string, filePath: string): AnalysisError[] {
     const errors: AnalysisError[] = [];
     const lines = content.split('\n');
@@ -135,8 +161,7 @@ function detectPythonStructureIssues(content: string, filePath: string): Analysi
             });
         }
 
-        const tabMatch = line.match(/\t/);
-        if (tabMatch) {
+        if (line.includes('\t')) {
             errors.push({
                 line: lineNum,
                 message: 'Tab character found. Use spaces for indentation.',
@@ -166,7 +191,7 @@ function detectPythonStructureIssues(content: string, filePath: string): Analysi
             });
         }
 
-        if (line.match(/pass\s*$/)) {
+        if (line.match(/^\s*pass\s*$/)) {
             errors.push({
                 line: lineNum,
                 message: 'Empty pass statement found - use ellipsis (...) or add docstring',
@@ -328,7 +353,7 @@ function detectCSharpStructureIssues(content: string, filePath: string): Analysi
             });
         }
 
-        if (line.match(/string\s*\+\s*string/) || line.match(/\+\s*"/)) {
+        if ((line.match(/string\s*\+\s*string/) || line.match(/\+\s*"/)) && i > 0) {
             const prevLine = lines[i - 1] || '';
             if (!prevLine.includes('StringBuilder')) {
                 errors.push({
@@ -342,7 +367,7 @@ function detectCSharpStructureIssues(content: string, filePath: string): Analysi
         }
 
         const asyncMatch = line.match(/async\s+Task\s+/);
-        if (asyncMatch) {
+        if (asyncMatch && i + 1 < lines.length) {
             const nextLine = lines[i + 1] || '';
             if (!nextLine.includes('await')) {
                 errors.push({
