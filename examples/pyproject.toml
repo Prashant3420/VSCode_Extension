@@ -1,0 +1,26 @@
+[tool.code-quality-guardian]
+strict = true
+autoInstallHooks = false
+
+[tool.code-quality-guardian.python]
+runPylint = "error"
+runFlake8 = "error"
+runBlack = "error"
+runIsort = "error"
+runMypy = "warning"
+runBandit = "error"
+enforceNaming = "error"
+enforceDocstrings = "warning"
+
+[tool.code-quality-guardian.csharp]
+runRoslyn = "error"
+runStyleCop = "error"
+runSonarAnalyzer = "error"
+runDotnetFormat = "error"
+enforceNaming = "error"
+
+[tool.code-quality-guardian.analysis]
+enableAstAnalysis = true
+enableSemanticAnalysis = true
+enableImpactAnalysis = true
+enableCodebaseScan = true

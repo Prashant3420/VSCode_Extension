@@ -1,0 +1,217 @@
+{
+  "name": "code-quality-guardian",
+  "displayName": "Code Quality Guardian",
+  "description": "Production-grade pre-commit code quality enforcement for Python and C# projects",
+  "version": "1.0.0",
+  "publisher": "codequality",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other",
+    "Linters",
+    "Development Tools"
+  ],
+  "keywords": [
+    "code-quality",
+    "pre-commit",
+    "lint",
+    "python",
+    "csharp",
+    "pylint",
+    "flake8",
+    "roslyn",
+    "stylecop"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:code-quality.installHook",
+    "onCommand:code-quality.runChecks",
+    "onCommand:code-quality.scanProject",
+    "onCommand:code-quality.showConfig"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "code-quality.installHook",
+        "title": "Code Quality: Install Pre-commit Hook",
+        "description": "Install the pre-commit hook for automatic code quality checks"
+      },
+      {
+        "command": "code-quality.uninstallHook",
+        "title": "Code Quality: Uninstall Pre-commit Hook",
+        "description": "Remove the pre-commit hook"
+      },
+      {
+        "command": "code-quality.runChecks",
+        "title": "Code Quality: Run Quality Checks",
+        "description": "Run all code quality checks on staged files"
+      },
+      {
+        "command": "code-quality.scanProject",
+        "title": "Code Quality: Scan Project",
+        "description": "Scan the entire project to build/update the project profile"
+      },
+      {
+        "command": "code-quality.showConfig",
+        "title": "Code Quality: Show Configuration",
+        "description": "Show current configuration settings"
+      },
+      {
+        "command": "code-quality.enableAutoOnCommit",
+        "title": "Code Quality: Enable Auto-check on Commit",
+        "description": "Automatically run checks when user tries to commit"
+      },
+      {
+        "command": "code-quality.disableAutoOnCommit",
+        "title": "Code Quality: Disable Auto-check on Commit",
+        "description": "Disable automatic checks on commit"
+      }
+    ],
+    "configuration": {
+      "title": "Code Quality Guardian",
+      "properties": {
+        "codeQuality.strict": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable strict mode - block commits on any violation"
+        },
+        "codeQuality.autoInstallHooks": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically install pre-commit hook on project open"
+        },
+        "codeQuality.enableAutoOnCommit": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically run checks when user tries to commit"
+        },
+        "codeQuality.python.runPylint": {
+          "type": "string",
+          "enum": ["off", "warning", "error"],
+          "default": "error",
+          "description": "Run Pylint for Python files"
+        },
+        "codeQuality.python.runFlake8": {
+          "type": "string",
+          "enum": ["off", "warning", "error"],
+          "default": "error",
+          "description": "Run Flake8 for Python files"
+        },
+        "codeQuality.python.runBlack": {
+          "type": "string",
+          "enum": ["off", "warning", "error"],
+          "default": "error",
+          "description": "Run Black for formatting"
+        },
+        "codeQuality.python.runIsort": {
+          "type": "string",
+          "enum": ["off", "warning", "error"],
+          "default": "error",
+          "description": "Run isort for import sorting"
+        },
+        "codeQuality.python.runMypy": {
+          "type": "string",
+          "enum": ["off", "warning", "error"],
+          "default": "warning",
+          "description": "Run MyPy for type checking"
+        },
+        "codeQuality.python.runBandit": {
+          "type": "string",
+          "enum": ["off", "warning", "error"],
+          "default": "error",
+          "description": "Run Bandit for security checks"
+        },
+        "codeQuality.python.enforceNaming": {
+          "type": "string",
+          "enum": ["off", "warning", "error"],
+          "default": "error",
+          "description": "Enforce Python naming conventions (snake_case, PascalCase)"
+        },
+        "codeQuality.python.enforceDocstrings": {
+          "type": "string",
+          "enum": ["off", "warning", "error"],
+          "default": "warning",
+          "description": "Enforce docstring requirements"
+        },
+        "codeQuality.csharp.runRoslyn": {
+          "type": "string",
+          "enum": ["off", "warning", "error"],
+          "default": "error",
+          "description": "Run Roslyn analyzers for C# files"
+        },
+        "codeQuality.csharp.runStyleCop": {
+          "type": "string",
+          "enum": ["off", "warning", "error"],
+          "default": "error",
+          "description": "Run StyleCop analyzers"
+        },
+        "codeQuality.csharp.runSonarAnalyzer": {
+          "type": "string",
+          "enum": ["off", "warning", "error"],
+          "default": "error",
+          "description": "Run SonarAnalyzer.CSharp"
+        },
+        "codeQuality.csharp.runDotnetFormat": {
+          "type": "string",
+          "enum": ["off", "warning", "error"],
+          "default": "error",
+          "description": "Run dotnet format"
+        },
+        "codeQuality.csharp.enforceNaming": {
+          "type": "string",
+          "enum": ["off", "warning", "error"],
+          "default": "error",
+          "description": "Enforce C# naming conventions"
+        },
+        "codeQuality.analysis.enableAstAnalysis": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable AST-based deep analysis"
+        },
+        "codeQuality.analysis.enableSemanticAnalysis": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable semantic cross-file analysis"
+        },
+        "codeQuality.analysis.enableImpactAnalysis": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable diff impact analysis"
+        },
+        "codeQuality.analysis.enableCodebaseScan": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable codebase scanning for project profile"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "postinstall": "node ./node_modules/vscode/bin/install",
+    "test": "node ./out/test/runTest.js",
+    "lint": "eslint src --ext .ts",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.6",
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.80.0",
+    "@vscode/test-electron": "^2.3.8",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.2",
+    "vsce": "^2.15.0"
+  },
+  "dependencies": {
+    "vscode": "^1.1.37"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Prashant3420/VSCode_Extension.git"
+  }
+}
