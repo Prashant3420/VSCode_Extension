@@ -24,11 +24,16 @@
     "stylecop"
   ],
   "activationEvents": [
+    "*",
     "onStartupFinished",
     "onCommand:code-quality.installHook",
+    "onCommand:code-quality.uninstallHook",
     "onCommand:code-quality.runChecks",
     "onCommand:code-quality.scanProject",
-    "onCommand:code-quality.showConfig"
+    "onCommand:code-quality.showConfig",
+    "onCommand:code-quality.showStatus",
+    "onCommand:code-quality.enableAutoOnCommit",
+    "onCommand:code-quality.disableAutoOnCommit"
   ],
   "main": "./out/extension.js",
   "contributes": {

@@ -35,10 +35,8 @@ exit 0
 `;
 
 export class GitIntegration {
-    private static instance: GitIntegration;
     private configManager: ConfigManager;
     private hookInstalled: boolean = false;
-    private commitListeners: vscode.Disposable[] = [];
     private workspaceRoot: string;
 
     constructor(workspaceRoot: string) {
@@ -47,15 +45,12 @@ export class GitIntegration {
         this.configManager.initialize(workspaceRoot);
     }
 
-    public static getInstance(workspaceRoot: string): GitIntegration {
-        if (!GitIntegration.instance) {
-            GitIntegration.instance = new GitIntegration(workspaceRoot);
-        }
-        return GitIntegration.instance;
-    }
-
     public async initialize(): Promise<void> {
-        this.checkHookInstalled();
+        try {
+            this.checkHookInstalled();
+        } catch (error) {
+            console.error('GitIntegration init error:', error);
+        }
     }
 
     public async getStagedFiles(repo?: any): Promise<StagedFile[]> {
@@ -209,19 +204,17 @@ export class GitIntegration {
     }
 
     public dispose(): void {
-        for (const listener of this.commitListeners) {
-            listener.dispose();
-        }
-        this.commitListeners = [];
+        // Cleanup if needed
     }
 }
 
 export function createGitIntegration(workspaceRoot: string): GitIntegration {
-    return GitIntegration.getInstance(workspaceRoot);
+    return new GitIntegration(workspaceRoot);
 }
 
 export async function getStagedFiles(workspaceRoot: string): Promise<StagedFile[]> {
-    const git = GitIntegration.getInstance(workspaceRoot);
+    const git = new GitIntegration(workspaceRoot);
+    await git.initialize();
     return git.getStagedFilesOnly();
 }
 

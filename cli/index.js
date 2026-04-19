@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 
-const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
+const { execSync } = require('child_process');
 
 const EXIT_CODES = {
     SUCCESS: 0,
@@ -52,17 +51,15 @@ function loadConfig(workspaceRoot) {
                 const content = fs.readFileSync(configPath, 'utf-8');
                 return { ...DEFAULT_CONFIG, ...JSON.parse(content) };
             } catch (e) {
-                console.error(`Failed to load config from ${configPath}:`, e.message);
+                console.error('Failed to load config:', e.message);
             }
         }
     }
-
     return DEFAULT_CONFIG;
 }
 
 function getStagedFiles(workspaceRoot) {
     try {
-        const { execSync } = require('child_process');
         const result = execSync('git diff --cached --name-status', {
             cwd: workspaceRoot,
             encoding: 'utf-8',
@@ -90,7 +87,6 @@ function getStagedFiles(workspaceRoot) {
 
             files.push({ path: filePath, status, language });
         }
-
         return files;
     } catch (e) {
         console.error('Failed to get staged files:', e.message);
@@ -98,58 +94,20 @@ function getStagedFiles(workspaceRoot) {
     }
 }
 
-function detectLanguage(files) {
-    const pythonCount = files.filter(f => f.language === 'python').length;
-    const csharpCount = files.filter(f => f.language === 'csharp').length;
-
-    if (pythonCount > 0 && csharpCount > 0) return 'mixed';
-    if (pythonCount > 0) return 'python';
-    if (csharpCount > 0) return 'csharp';
-    return 'unknown';
-}
-
 function runPylint(files, workspaceRoot) {
     const pyFiles = files.filter(f => f.language === 'python').map(f => f.path);
     if (pyFiles.length === 0) return { success: true, errors: [], warnings: [] };
 
     try {
-        const { execSync } = require('child_process');
-        const result = execSync(`pylint --output-format=text ${pyFiles.map(f => `"${f}"`).join(' ')}`, {
+        execSync(`pylint --output-format=text ${pyFiles.map(f => '"' + f + '"').join(' ')}`, {
             cwd: workspaceRoot,
             encoding: 'utf-8',
             maxBuffer: 10 * 1024 * 1024,
         });
-
-        const errors = parsePylintOutput(result);
-        return { success: errors.length === 0, errors, warnings: [] };
+        return { success: true, errors: [], warnings: [] };
     } catch (e) {
-        if (e.stdout) {
-            const errors = parsePylintOutput(e.stdout.toString());
-            return { success: false, errors, warnings: [] };
-        }
-        return { success: false, errors: [{ line: 0, message: e.message }], warnings: [] };
+        return { success: false, errors: [{ line: 1, message: 'Pylint found issues' }], warnings: [] };
     }
-}
-
-function parsePylintOutput(output) {
-    const errors = [];
-    const lines = output.split('\n');
-
-    for (const line of lines) {
-        const match = line.match(/(\S+):(\d+):(\d+):\s*(\w+):\s*(.+)/);
-        if (match) {
-            const [, file, lineNum, col, code, message] = match;
-            errors.push({
-                line: parseInt(lineNum),
-                column: parseInt(col),
-                message: message.trim(),
-                code: code,
-                severity: code.startsWith('E') ? 'error' : 'warning',
-            });
-        }
-    }
-
-    return errors;
 }
 
 function runFlake8(files, workspaceRoot) {
@@ -157,44 +115,15 @@ function runFlake8(files, workspaceRoot) {
     if (pyFiles.length === 0) return { success: true, errors: [], warnings: [] };
 
     try {
-        const { execSync } = require('child_process');
-        const result = execSync(`flake8 ${pyFiles.map(f => `"${f}"`).join(' ')}`, {
+        execSync(`flake8 ${pyFiles.map(f => '"' + f + '"').join(' ')}`, {
             cwd: workspaceRoot,
             encoding: 'utf-8',
             maxBuffer: 10 * 1024 * 1024,
         });
-
-        const errors = parseFlake8Output(result);
-        return { success: errors.length === 0, errors, warnings: [] };
+        return { success: true, errors: [], warnings: [] };
     } catch (e) {
-        if (e.stdout) {
-            const errors = parseFlake8Output(e.stdout.toString());
-            return { success: false, errors, warnings: [] };
-        }
-        return { success: false, errors: [], warnings: [] };
+        return { success: false, errors: [{ line: 1, message: 'Flake8 found issues' }], warnings: [] };
     }
-}
-
-function parseFlake8Output(output) {
-    const errors = [];
-    const lines = output.split('\n');
-
-    for (const line of lines) {
-        const match = line.match(/(.+):(\d+):(\d+):\s*(\w+)\s+(.+)/);
-        if (match) {
-            const [, file, lineNum, col, code, message] = match;
-            const severity = code.startsWith('E') || code.startsWith('F') ? 'error' : 'warning';
-            errors.push({
-                line: parseInt(lineNum),
-                column: parseInt(col),
-                message: message.trim(),
-                code: code,
-                severity,
-            });
-        }
-    }
-
-    return errors;
 }
 
 function runBlack(files, workspaceRoot) {
@@ -202,20 +131,14 @@ function runBlack(files, workspaceRoot) {
     if (pyFiles.length === 0) return { success: true, errors: [], warnings: [] };
 
     try {
-        const { execSync } = require('child_process');
-        execSync(`black --check ${pyFiles.map(f => `"${f}"`).join(' ')}`, {
+        execSync(`black --check ${pyFiles.map(f => '"' + f + '"').join(' ')}`, {
             cwd: workspaceRoot,
             encoding: 'utf-8',
             maxBuffer: 10 * 1024 * 1024,
         });
-
         return { success: true, errors: [], warnings: [] };
     } catch (e) {
-        return {
-            success: false,
-            errors: [{ line: 1, message: 'File needs formatting (run black)', code: 'BLACK001', severity: 'error' }],
-            warnings: [],
-        };
+        return { success: false, errors: [{ line: 1, message: 'Black: formatting needed' }], warnings: [] };
     }
 }
 
@@ -224,20 +147,14 @@ function runIsort(files, workspaceRoot) {
     if (pyFiles.length === 0) return { success: true, errors: [], warnings: [] };
 
     try {
-        const { execSync } = require('child_process');
-        execSync(`isort --check-only ${pyFiles.map(f => `"${f}"`).join(' ')}`, {
+        execSync(`isort --check-only ${pyFiles.map(f => '"' + f + '"').join(' ')}`, {
             cwd: workspaceRoot,
             encoding: 'utf-8',
             maxBuffer: 10 * 1024 * 1024,
         });
-
         return { success: true, errors: [], warnings: [] };
     } catch (e) {
-        return {
-            success: false,
-            errors: [{ line: 1, message: 'Import order needs fixing (run isort)', code: 'ISORT001', severity: 'error' }],
-            warnings: [],
-        };
+        return { success: false, errors: [{ line: 1, message: 'isort: import order needs fixing' }], warnings: [] };
     }
 }
 
@@ -246,39 +163,14 @@ function runMypy(files, workspaceRoot) {
     if (pyFiles.length === 0) return { success: true, errors: [], warnings: [] };
 
     try {
-        const { execSync } = require('child_process');
-        execSync(`mypy ${pyFiles.map(f => `"${f}"`).join(' ')}`, {
+        execSync(`mypy ${pyFiles.map(f => '"' + f + '"').join(' ')}`, {
             cwd: workspaceRoot,
             encoding: 'utf-8',
             maxBuffer: 10 * 1024 * 1024,
         });
-
         return { success: true, errors: [], warnings: [] };
     } catch (e) {
-        if (e.stdout) {
-            const output = e.stdout.toString();
-            const lines = output.split('\n').filter(l => l.includes(': error:') || l.includes(': warning:'));
-            const errors = [];
-            const warnings = [];
-
-            for (const line of lines) {
-                const match = line.match(/(.+):(\d+):\s*(error|warning):\s*(.+)/);
-                if (match) {
-                    const [, file, lineNum, type, message] = match;
-                    const error = {
-                        line: parseInt(lineNum),
-                        message: message.trim(),
-                        severity: type === 'error' ? 'error' : 'warning',
-                    };
-
-                    if (type === 'error') errors.push(error);
-                    else warnings.push(error);
-                }
-            }
-
-            return { success: errors.length === 0, errors, warnings };
-        }
-        return { success: true, errors: [], warnings: [] };
+        return { success: true, errors: [], warnings: [{ line: 1, message: 'MyPy warnings' }] };
     }
 }
 
@@ -287,35 +179,14 @@ function runBandit(files, workspaceRoot) {
     if (pyFiles.length === 0) return { success: true, errors: [], warnings: [] };
 
     try {
-        const { execSync } = require('child_process');
-        execSync(`bandit -r ${pyFiles.map(f => `"${f}"`).join(' ')}`, {
+        execSync(`bandit -r ${pyFiles.map(f => '"' + f + '"').join(' ')}`, {
             cwd: workspaceRoot,
             encoding: 'utf-8',
             maxBuffer: 10 * 1024 * 1024,
         });
-
         return { success: true, errors: [], warnings: [] };
     } catch (e) {
-        if (e.stdout) {
-            const output = e.stdout.toString();
-            const lines = output.split('\n').filter(l => l.includes(':'), []);
-            const errors = [];
-
-            for (const line of lines) {
-                const match = line.match(/(.+):(\d+):\s*(\w+):\s*(.+)/);
-                if (match) {
-                    errors.push({
-                        line: parseInt(match[2]),
-                        message: `[SECURITY] ${match[4].trim()}`,
-                        code: match[3],
-                        severity: 'error',
-                    });
-                }
-            }
-
-            return { success: errors.length === 0, errors, warnings: [] };
-        }
-        return { success: true, errors: [], warnings: [] };
+        return { success: false, errors: [{ line: 1, message: 'Bandit: security issues found' }], warnings: [] };
     }
 }
 
@@ -326,47 +197,19 @@ function runDotnetBuild(files, workspaceRoot) {
     try {
         const csprojFiles = fs.readdirSync(workspaceRoot).filter(f => f.endsWith('.csproj'));
         if (csprojFiles.length === 0) {
-            return {
-                success: false,
-                errors: [{ line: 0, message: 'No .csproj file found', code: 'CSHARP001', severity: 'error' }],
-                warnings: [],
-            };
+            return { success: false, errors: [{ line: 0, message: 'No .csproj found' }], warnings: [] };
         }
 
-        const { execSync } = require('child_process');
-        execSync(`dotnet build ${csprojFiles[0]} --no-incremental --verbosity quiet`, {
+        execSync('dotnet build ' + csprojFiles[0] + ' --no-incremental --verbosity quiet', {
             cwd: workspaceRoot,
             encoding: 'utf-8',
             maxBuffer: 10 * 1024 * 1024,
             env: { ...process.env, DOTNET_CLI_TELEMETRY_OPTOUT: '1' },
         });
-
         return { success: true, errors: [], warnings: [] };
     } catch (e) {
-        const output = e.stdout?.toString() || e.message || '';
-        const errors = parseDotnetOutput(output);
-        return { success: errors.length === 0, errors, warnings: [] };
+        return { success: false, errors: [{ line: 0, message: 'Build failed' }], warnings: [] };
     }
-}
-
-function parseDotnetOutput(output) {
-    const errors = [];
-    const lines = output.split('\n');
-
-    for (const line of lines) {
-        const match = line.match(/(\S+\.cs)\((\d+),(\d+)\):\s*(\w+)\s+(CS\d+):\s*(.+)/);
-        if (match) {
-            errors.push({
-                line: parseInt(match[2]),
-                column: parseInt(match[3]),
-                message: match[6].trim(),
-                code: match[5],
-                severity: match[4].toLowerCase().includes('error') ? 'error' : 'warning',
-            });
-        }
-    }
-
-    return errors;
 }
 
 function runDotnetFormat(files, workspaceRoot) {
@@ -375,29 +218,17 @@ function runDotnetFormat(files, workspaceRoot) {
 
     try {
         const csprojFiles = fs.readdirSync(workspaceRoot).filter(f => f.endsWith('.csproj'));
-        if (csprojFiles.length === 0) {
-            return { success: true, errors: [], warnings: [] };
-        }
+        if (csprojFiles.length === 0) return { success: true, errors: [], warnings: [] };
 
-        const { execSync } = require('child_process');
-        execSync(`dotnet format ${csprojFiles[0]} --verify-no-changes`, {
+        execSync('dotnet format ' + csprojFiles[0] + ' --verify-no-changes', {
             cwd: workspaceRoot,
             encoding: 'utf-8',
             maxBuffer: 10 * 1024 * 1024,
             env: { ...process.env, DOTNET_CLI_TELEMETRY_OPTOUT: '1' },
         });
-
         return { success: true, errors: [], warnings: [] };
     } catch (e) {
-        const output = e.stdout?.toString() || e.stderr?.toString() || e.message || '';
-        if (output.includes('would format')) {
-            return {
-                success: false,
-                errors: [{ line: 1, message: 'Code needs formatting (run dotnet format)', code: 'FORMAT001', severity: 'error' }],
-                warnings: [],
-            };
-        }
-        return { success: true, errors: [], warnings: [] };
+        return { success: false, errors: [{ line: 1, message: 'dotnet format: formatting needed' }], warnings: [] };
     }
 }
 
@@ -422,53 +253,25 @@ function checkNamingConventions(files, workspaceRoot, language) {
                 if (language === 'python') {
                     const classMatch = line.match(/^class\s+(\w+)/);
                     if (classMatch && !/^[A-Z][a-zA-Z0-9]*$/.test(classMatch[1])) {
-                        errors.push({
-                            line: lineNum,
-                            message: `Class "${classMatch[1]}" should use PascalCase`,
-                            code: 'NAMING001',
-                            severity: 'error',
-                        });
+                        errors.push({ line: lineNum, message: 'Class should use PascalCase', code: 'NAMING001' });
                     }
 
                     const funcMatch = line.match(/^\s*def\s+(\w+)/);
                     if (funcMatch && !/^[a-z_][a-z0-9_]*$/.test(funcMatch[1])) {
-                        errors.push({
-                            line: lineNum,
-                            message: `Function "${funcMatch[1]}" should use snake_case`,
-                            code: 'NAMING002',
-                            severity: 'error',
-                        });
+                        errors.push({ line: lineNum, message: 'Function should use snake_case', code: 'NAMING002' });
                     }
                 } else if (language === 'csharp') {
                     const classMatch = line.match(/^(public|internal)?\s*(class|interface|struct)\s+(\w+)/);
                     if (classMatch) {
                         const name = classMatch[3];
                         if (!/^[A-Z][a-zA-Z0-9]*$/.test(name)) {
-                            errors.push({
-                                line: lineNum,
-                                message: `Type "${name}" should use PascalCase`,
-                                code: 'NAMING010',
-                                severity: 'error',
-                            });
-                        }
-                    }
-
-                    const methodMatch = line.match(/^(public|private|protected|internal)\s+(\w+)\s+(\w+)\s*\(/);
-                    if (methodMatch) {
-                        const name = methodMatch[3];
-                        if (!/^[A-Z][a-zA-Z0-9]*$/.test(name)) {
-                            errors.push({
-                                line: lineNum,
-                                message: `Method "${name}" should use PascalCase`,
-                                code: 'NAMING011',
-                                severity: 'error',
-                            });
+                            errors.push({ line: lineNum, message: 'Type should use PascalCase', code: 'NAMING010' });
                         }
                     }
                 }
             }
         } catch (e) {
-            console.error(`Failed to check naming in ${file.path}:`, e.message);
+            console.error('Naming check failed:', e.message);
         }
     }
 
@@ -480,215 +283,31 @@ async function runAnalysis(files, workspaceRoot, config) {
     const allErrors = [];
     const allWarnings = [];
 
-    const language = detectLanguage(files);
+    const hasPython = files.some(f => f.language === 'python');
+    const hasCSharp = files.some(f => f.language === 'csharp');
 
-    if (language === 'python' || language === 'mixed') {
-        const pyFiles = files.filter(f => f.language === 'python');
-
-        if (config.python.runPylint !== 'off') {
-            const result = runPylint(files, workspaceRoot);
-            allErrors.push(...result.errors.map(e => ({ ...e, tool: 'pylint' })));
-            allWarnings.push(...result.warnings.map(w => ({ ...w, tool: 'pylint' })));
-            if (!result.success && config.python.runPylint === 'error') {
-                console.error('Pylint failed');
-            }
-        }
-
-        if (config.python.runFlake8 !== 'off') {
-            const result = runFlake8(files, workspaceRoot);
-            allErrors.push(...result.errors.map(e => ({ ...e, tool: 'flake8' })));
-            allWarnings.push(...result.warnings.map(w => ({ ...w, tool: 'flake8' })));
-            if (!result.success && config.python.runFlake8 === 'error') {
-                console.error('Flake8 failed');
-            }
-        }
-
-        if (config.python.runBlack !== 'off') {
-            const result = runBlack(files, workspaceRoot);
-            allErrors.push(...result.errors.map(e => ({ ...e, tool: 'black' })));
-            allWarnings.push(...result.warnings.map(w => ({ ...w, tool: 'black' })));
-            if (!result.success && config.python.runBlack === 'error') {
-                console.error('Black failed');
-            }
-        }
-
-        if (config.python.runIsort !== 'off') {
-            const result = runIsort(files, workspaceRoot);
-            allErrors.push(...result.errors.map(e => ({ ...e, tool: 'isort' })));
-            allWarnings.push(...result.warnings.map(w => ({ ...w, tool: 'isort' })));
-            if (!result.success && config.python.runIsort === 'error') {
-                console.error('isort failed');
-            }
-        }
-
-        if (config.python.runMypy !== 'off') {
-            const result = runMypy(files, workspaceRoot);
-            allErrors.push(...result.errors.map(e => ({ ...e, tool: 'mypy' })));
-            allWarnings.push(...result.warnings.map(w => ({ ...w, tool: 'mypy' })));
-            if (!result.success && config.python.runMypy === 'error') {
-                console.error('MyPy failed');
-            }
-        }
-
-        if (config.python.runBandit !== 'off') {
-            const result = runBandit(files, workspaceRoot);
-            allErrors.push(...result.errors.map(e => ({ ...e, tool: 'bandit' })));
-            allWarnings.push(...result.warnings.map(w => ({ ...w, tool: 'bandit' })));
-            if (!result.success && config.python.runBandit === 'error') {
-                console.error('Bandit failed');
-            }
-        }
-
-        if (config.python.enforceNaming !== 'off') {
-            const result = checkNamingConventions(files, workspaceRoot, 'python');
-            allErrors.push(...result.errors.map(e => ({ ...e, tool: 'naming' })));
-            allWarnings.push(...result.warnings.map(w => ({ ...w, tool: 'naming' })));
-            if (!result.success && config.python.enforceNaming === 'error') {
-                console.error('Naming conventions check failed');
-            }
-        }
+    if (hasPython) {
+        if (config.python.runPylint !== 'off') allErrors.push(...runPylint(files, workspaceRoot).errors);
+        if (config.python.runFlake8 !== 'off') allErrors.push(...runFlake8(files, workspaceRoot).errors);
+        if (config.python.runBlack !== 'off') allErrors.push(...runBlack(files, workspaceRoot).errors);
+        if (config.python.runIsort !== 'off') allErrors.push(...runIsort(files, workspaceRoot).errors);
+        if (config.python.runMypy !== 'off') allWarnings.push(...runMypy(files, workspaceRoot).warnings);
+        if (config.python.runBandit !== 'off') allErrors.push(...runBandit(files, workspaceRoot).errors);
+        if (config.python.enforceNaming !== 'off') allErrors.push(...checkNamingConventions(files, workspaceRoot, 'python').errors);
     }
 
-    if (language === 'csharp' || language === 'mixed') {
-        if (config.csharp.runRoslyn !== 'off') {
-            const result = runDotnetBuild(files, workspaceRoot);
-            allErrors.push(...result.errors.map(e => ({ ...e, tool: 'roslyn' })));
-            allWarnings.push(...result.warnings.map(w => ({ ...w, tool: 'roslyn' })));
-            if (!result.success && config.csharp.runRoslyn === 'error') {
-                console.error('Roslyn build failed');
-            }
-        }
-
-        if (config.csharp.runDotnetFormat !== 'off') {
-            const result = runDotnetFormat(files, workspaceRoot);
-            allErrors.push(...result.errors.map(e => ({ ...e, tool: 'dotnet-format' })));
-            allWarnings.push(...result.warnings.map(w => ({ ...w, tool: 'dotnet-format' })));
-            if (!result.success && config.csharp.runDotnetFormat === 'error') {
-                console.error('dotnet format failed');
-            }
-        }
-
-        if (config.csharp.enforceNaming !== 'off') {
-            const result = checkNamingConventions(files, workspaceRoot, 'csharp');
-            allErrors.push(...result.errors.map(e => ({ ...e, tool: 'naming' })));
-            allWarnings.push(...result.warnings.map(w => ({ ...w, tool: 'naming' })));
-            if (!result.success && config.csharp.enforceNaming === 'error') {
-                console.error('C# naming conventions failed');
-            }
-        }
+    if (hasCSharp) {
+        if (config.csharp.runRoslyn !== 'off') allErrors.push(...runDotnetBuild(files, workspaceRoot).errors);
+        if (config.csharp.runDotnetFormat !== 'off') allErrors.push(...runDotnetFormat(files, workspaceRoot).errors);
+        if (config.csharp.enforceNaming !== 'off') allErrors.push(...checkNamingConventions(files, workspaceRoot, 'csharp').errors);
     }
-
-    const executionTime = Date.now() - startTime;
 
     return {
         allErrors,
         allWarnings,
-        executionTime,
+        executionTime: Date.now() - startTime,
         success: allErrors.length === 0,
     };
-}
-
-function parseArgs(args) {
-    const options = {
-        staged: false,
-        hook: false,
-        verbose: false,
-    };
-
-    for (let i = 2; i < args.length; i++) {
-        const arg = args[i];
-        if (arg === '--staged' || arg === '-s') {
-            options.staged = true;
-        } else if (arg === '--hook') {
-            options.hook = true;
-        } else if (arg === '--verbose' || arg === '-v') {
-            options.verbose = true;
-        }
-    }
-
-    return options;
-}
-
-async function main() {
-    const args = process.argv;
-    const options = parseArgs(args);
-
-    if (options.verbose) {
-        console.log('Code Quality Guardian CLI');
-        console.log('====================');
-    }
-
-    const workspaceRoot = findWorkspaceRoot();
-
-    if (!workspaceRoot) {
-        console.error('Error: No workspace root found');
-        process.exit(EXIT_CODES.CONFIG_ERROR);
-    }
-
-    if (options.verbose) {
-        console.log(`Workspace: ${workspaceRoot}`);
-    }
-
-    const config = loadConfig(workspaceRoot);
-
-    let files = getStagedFiles(workspaceRoot);
-
-    if (options.staged !== true || files.length === 0) {
-        if (options.verbose) {
-            console.log('No staged files');
-        }
-        process.exit(EXIT_CODES.SUCCESS);
-    }
-
-    if (options.verbose) {
-        console.log(`Staged files: ${files.length}`);
-    }
-
-    const result = await runAnalysis(files, workspaceRoot, config);
-
-    if (result.allErrors.length > 0) {
-        console.error('');
-        console.error('Validation Failed');
-        console.error('=================');
-        console.error(`Found ${result.allErrors.length} errors:`);
-
-        const grouped = new Map();
-        for (const error of result.allErrors) {
-            if (!grouped.has(error.file)) {
-                grouped.set(error.file, []);
-            }
-            grouped.get(error.file).push(error);
-        }
-
-        for (const [file, errors] of grouped) {
-            console.error(`\n${file}:`);
-            for (const error of errors.slice(0, 5)) {
-                console.error(`  L${error.line}: ${error.message}`);
-                if (error.code) {
-                    console.error(`    [${error.code}]`);
-                }
-            }
-            if (errors.length > 5) {
-                console.error(`  ... and ${errors.length - 5} more errors`);
-            }
-        }
-
-        if (options.hook || options.verbose) {
-            console.error(`\nExecution time: ${result.executionTime}ms`);
-        }
-    } else {
-        if (options.verbose) {
-            console.log('');
-            console.log('All checks passed!');
-            console.log(`Execution time: ${result.executionTime}ms`);
-        }
-    }
-
-    if (result.allWarnings.length > 0 && options.verbose) {
-        console.warn(`\nWarnings: ${result.allWarnings.length}`);
-    }
-
-    process.exit(config.strict ? (result.success ? EXIT_CODES.SUCCESS : EXIT_CODES.VALIDATION_FAILED) : EXIT_CODES.SUCCESS);
 }
 
 function findWorkspaceRoot() {
@@ -698,42 +317,81 @@ function findWorkspaceRoot() {
         if (fs.existsSync(path.join(dir, '.git'))) {
             return dir;
         }
-
         const parent = path.dirname(dir);
-        if (parent === dir) {
-            return null;
-        }
-
+        if (parent === dir) return null;
         return searchDirs(parent);
     };
 
     const gitRoot = searchDirs(cwd);
+    if (gitRoot) return gitRoot;
 
-    if (gitRoot) {
-        return gitRoot;
-    }
+    if (fs.existsSync(path.join(cwd, '.csproj'))) return cwd;
+    if (fs.existsSync(path.join(cwd, 'pyproject.toml'))) return cwd;
 
-    if (fs.existsSync(path.join(cwd, '.csproj')) {
-        return cwd;
-    }
-
-    if (fs.existsSync(path.join(cwd, 'pyproject.toml'))) {
-        return cwd;
-    }
-
-    const pyprojectFiles = fs.readdirSync(cwd).filter(f => f.endsWith('.csproj'));
-    if (pyprojectFiles.length > 0) {
-        return cwd;
-    }
+    const pyFiles = fs.readdirSync(cwd).filter(f => f.endsWith('.csproj'));
+    if (pyFiles.length > 0) return cwd;
 
     return cwd;
 }
 
+function main() {
+    const args = process.argv;
+    const options = { staged: false, hook: false, verbose: false };
+
+    for (let i = 2; i < args.length; i++) {
+        const arg = args[i];
+        if (arg === '--staged' || arg === '-s') options.staged = true;
+        else if (arg === '--hook') options.hook = true;
+        else if (arg === '--verbose' || arg === '-v') options.verbose = true;
+    }
+
+    console.log('Code Quality Guardian CLI');
+
+    const workspaceRoot = findWorkspaceRoot();
+    console.log('Workspace:', workspaceRoot);
+
+    const config = loadConfig(workspaceRoot);
+    let files = getStagedFiles(workspaceRoot);
+
+    if (!options.staged || files.length === 0) {
+        console.log('No staged files - exiting');
+        process.exit(EXIT_CODES.SUCCESS);
+    }
+
+    console.log('Staged files:', files.length);
+
+    const result = runAnalysis(files, workspaceRoot, config);
+
+    if (result.allErrors.length > 0) {
+        console.log('');
+        console.log('VALIDATION FAILED');
+        console.log('='.repeat(30));
+        console.log('Found', result.allErrors.length, 'errors:');
+        
+        const grouped = {};
+        for (const err of result.allErrors) {
+            const key = err.line + ':' + err.message;
+            grouped[key] = (grouped[key] || 0) + 1;
+        }
+        
+        for (const key in grouped) {
+            console.log('  -', key, '(' + grouped[key] + 'x)');
+        }
+        
+        console.log('');
+        console.log('COMMIT BLOCKED');
+        process.exit(config.strict ? EXIT_CODES.VALIDATION_FAILED : EXIT_CODES.SUCCESS);
+    }
+
+    console.log('');
+    console.log('All checks passed!');
+    console.log('Execution time:', result.executionTime, 'ms');
+    
+    process.exit(EXIT_CODES.SUCCESS);
+}
+
 if (require.main === module) {
-    main().catch(e => {
-        console.error('Unexpected error:', e.message);
-        process.exit(EXIT_CODES.VALIDATION_FAILED);
-    });
+    main();
 }
 
 module.exports = { runAnalysis, getStagedFiles, loadConfig };
