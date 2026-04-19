@@ -7,7 +7,7 @@ import { ConfigManager } from '../config/configManager';
 export interface StagedFile {
     path: string;
     status: 'added' | 'modified' | 'deleted' | 'renamed';
-    language: 'python' | 'csharp' | 'unknown';
+    language: 'python' | 'csharp' | 'typescript' | 'javascript' | 'unknown';
 }
 
 const HOOK_SCRIPT = `#!/bin/bash
@@ -122,6 +122,8 @@ export class GitIntegration {
         const ext = path.extname(filePath).toLowerCase();
         if (ext === '.py') return 'python';
         if (ext === '.cs') return 'csharp';
+        if (ext === '.ts' || ext === '.tsx') return 'typescript';
+        if (ext === '.js' || ext === '.jsx') return 'javascript';
         return 'unknown';
     }
 

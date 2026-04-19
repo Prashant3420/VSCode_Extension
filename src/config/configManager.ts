@@ -26,6 +26,17 @@ export interface CSharpConfig {
     enforceNaming: SeverityLevel;
 }
 
+export interface TypeScriptConfig {
+    runTsc: SeverityLevel;
+    runEslint: SeverityLevel;
+    enforceNaming: SeverityLevel;
+}
+
+export interface JavaScriptConfig {
+    runEslint: SeverityLevel;
+    enforceNaming: SeverityLevel;
+}
+
 export interface AnalysisConfig {
     enableAstAnalysis: boolean;
     enableSemanticAnalysis: boolean;
@@ -39,6 +50,8 @@ export interface CodeQualityConfig {
     enableAutoOnCommit: boolean;
     python: PythonConfig;
     csharp: CSharpConfig;
+    typescript: TypeScriptConfig;
+    javascript: JavaScriptConfig;
     analysis: AnalysisConfig;
 }
 
@@ -97,6 +110,15 @@ const DEFAULT_CONFIG: CodeQualityConfig = {
         runStyleCop: { level: 'error', severity: vscode.DiagnosticSeverity.Error },
         runSonarAnalyzer: { level: 'error', severity: vscode.DiagnosticSeverity.Error },
         runDotnetFormat: { level: 'error', severity: vscode.DiagnosticSeverity.Error },
+        enforceNaming: { level: 'error', severity: vscode.DiagnosticSeverity.Error },
+    },
+    typescript: {
+        runTsc: { level: 'error', severity: vscode.DiagnosticSeverity.Error },
+        runEslint: { level: 'error', severity: vscode.DiagnosticSeverity.Error },
+        enforceNaming: { level: 'error', severity: vscode.DiagnosticSeverity.Error },
+    },
+    javascript: {
+        runEslint: { level: 'error', severity: vscode.DiagnosticSeverity.Error },
         enforceNaming: { level: 'error', severity: vscode.DiagnosticSeverity.Error },
     },
     analysis: {
@@ -159,6 +181,22 @@ export class ConfigManager {
             this.config.csharp[key] = this.parseSeverity(value as string);
         }
 
+        const typescriptKeys: (keyof TypeScriptConfig)[] = [
+            'runTsc', 'runEslint', 'enforceNaming'
+        ];
+        for (const key of typescriptKeys) {
+            const value = config.get<string>(`typescript.${key}`, DEFAULT_CONFIG.typescript[key].level);
+            this.config.typescript[key] = this.parseSeverity(value as string);
+        }
+
+        const javascriptKeys: (keyof JavaScriptConfig)[] = [
+            'runEslint', 'enforceNaming'
+        ];
+        for (const key of javascriptKeys) {
+            const value = config.get<string>(`javascript.${key}`, DEFAULT_CONFIG.javascript[key].level);
+            this.config.javascript[key] = this.parseSeverity(value as string);
+        }
+
         this.config.analysis.enableAstAnalysis = config.get<boolean>('analysis.enableAstAnalysis', DEFAULT_CONFIG.analysis.enableAstAnalysis);
         this.config.analysis.enableSemanticAnalysis = config.get<boolean>('analysis.enableSemanticAnalysis', DEFAULT_CONFIG.analysis.enableSemanticAnalysis);
         this.config.analysis.enableImpactAnalysis = config.get<boolean>('analysis.enableImpactAnalysis', DEFAULT_CONFIG.analysis.enableImpactAnalysis);
@@ -187,6 +225,14 @@ export class ConfigManager {
 
     public getCSharpConfig(): CSharpConfig {
         return { ...this.config.csharp };
+    }
+
+    public getTypeScriptConfig(): TypeScriptConfig {
+        return { ...this.config.typescript };
+    }
+
+    public getJavaScriptConfig(): JavaScriptConfig {
+        return { ...this.config.javascript };
     }
 
     public getAnalysisConfig(): AnalysisConfig {

@@ -1,6 +1,8 @@
 import { ConfigManager } from '../config/configManager';
 import { analyzePython } from '../python/pythonAnalyzer';
 import { analyzeCSharp } from '../csharp/csharpAnalyzer';
+import { analyzeTypeScript } from '../typescript/typescriptAnalyzer';
+import { analyzeJavaScript } from '../javascript/javascriptAnalyzer';
 import { analyzeWithAST } from './astLayer';
 import { analyzeSemantically } from './semanticLayer';
 import { runDiffImpactAnalysis } from '../impact/diffImpactAnalyzer';
@@ -9,7 +11,7 @@ import { reportDiagnostics, DiagnosticReport } from '../diagnostics/diagnosticsE
 export interface StagedFile {
     path: string;
     status: 'added' | 'modified' | 'deleted' | 'renamed';
-    language: 'python' | 'csharp' | 'unknown';
+    language: 'python' | 'csharp' | 'typescript' | 'javascript' | 'unknown';
 }
 
 export interface AnalysisResult {
@@ -74,10 +76,12 @@ export class AnalyzerEngine {
 
         const pythonFiles = stagedFiles.filter(f => f.language === 'python').map(f => f.path);
         const csharpFiles = stagedFiles.filter(f => f.language === 'csharp').map(f => f.path);
+        const typeScriptFiles = stagedFiles.filter(f => f.language === 'typescript').map(f => f.path);
+        const javaScriptFiles = stagedFiles.filter(f => f.language === 'javascript').map(f => f.path);
 
         const analysisConfig = this.configManager.getAnalysisConfig();
 
-        if (pythonFiles.length > 0 || csharpFiles.length > 0) {
+        if (pythonFiles.length > 0 || csharpFiles.length > 0 || typeScriptFiles.length > 0 || javaScriptFiles.length > 0) {
             if (analysisConfig.enableAstAnalysis) {
                 for (const file of stagedFiles) {
                     const astResults = await analyzeWithAST(file.path, file.language, this.workspaceRoot);
@@ -116,6 +120,30 @@ export class AnalyzerEngine {
                     layer: 'lint' as const,
                     errors: result.errors.map(e => ({ ...e, file: csharpFiles[0] })),
                     warnings: result.warnings.map(w => ({ ...w, file: csharpFiles[0] })),
+                });
+            }
+        }
+
+        if (typeScriptFiles.length > 0) {
+            const tsResults = await analyzeTypeScript(typeScriptFiles, this.workspaceRoot);
+            for (const result of tsResults) {
+                results.lintResults.push({
+                    ...result,
+                    layer: 'lint' as const,
+                    errors: result.errors.map(e => ({ ...e, file: typeScriptFiles[0] })),
+                    warnings: result.warnings.map(w => ({ ...w, file: typeScriptFiles[0] })),
+                });
+            }
+        }
+
+        if (javaScriptFiles.length > 0) {
+            const jsResults = await analyzeJavaScript(javaScriptFiles, this.workspaceRoot);
+            for (const result of jsResults) {
+                results.lintResults.push({
+                    ...result,
+                    layer: 'lint' as const,
+                    errors: result.errors.map(e => ({ ...e, file: javaScriptFiles[0] })),
+                    warnings: result.warnings.map(w => ({ ...w, file: javaScriptFiles[0] })),
                 });
             }
         }
@@ -204,6 +232,8 @@ export async function quickLint(stagedFiles: StagedFile[], workspaceRoot: string
 
     const pythonFiles = stagedFiles.filter(f => f.language === 'python').map(f => f.path);
     const csharpFiles = stagedFiles.filter(f => f.language === 'csharp').map(f => f.path);
+    const typeScriptFiles = stagedFiles.filter(f => f.language === 'typescript').map(f => f.path);
+    const javaScriptFiles = stagedFiles.filter(f => f.language === 'javascript').map(f => f.path);
 
     const errors: AnalysisError[] = [];
 
@@ -217,6 +247,20 @@ export async function quickLint(stagedFiles: StagedFile[], workspaceRoot: string
     if (csharpFiles.length > 0) {
         const csResults = await analyzeCSharp(csharpFiles, workspaceRoot);
         for (const result of csResults) {
+            errors.push(...result.errors as any);
+        }
+    }
+
+    if (typeScriptFiles.length > 0) {
+        const tsResults = await analyzeTypeScript(typeScriptFiles, workspaceRoot);
+        for (const result of tsResults) {
+            errors.push(...result.errors as any);
+        }
+    }
+
+    if (javaScriptFiles.length > 0) {
+        const jsResults = await analyzeJavaScript(javaScriptFiles, workspaceRoot);
+        for (const result of jsResults) {
             errors.push(...result.errors as any);
         }
     }

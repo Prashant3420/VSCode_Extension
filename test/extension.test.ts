@@ -8,7 +8,7 @@ suite('Code Quality Guardian Extension Tests', () => {
         } catch (e) {
             assert.fail(`Failed to load ConfigManager: ${e}`);
         }
-    });
+    })
 
     test('Analyzer module should be loadable', async () => {
         try {

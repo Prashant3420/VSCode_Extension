@@ -23,13 +23,15 @@ export interface AnalysisError {
 
 export async function analyzeWithAST(
     filePath: string,
-    language: 'python' | 'csharp' | 'unknown',
+    language: 'python' | 'csharp' | 'typescript' | 'javascript' | 'unknown',
     workspaceRoot: string
 ): Promise<ASTAnalysisResult[]> {
     if (language === 'python') {
         return analyzePythonAST(filePath, workspaceRoot);
     } else if (language === 'csharp') {
         return analyzeCSharpAST(filePath, workspaceRoot);
+    } else if (language === 'typescript' || language === 'javascript') {
+        return analyzeJsTsAST(filePath, workspaceRoot, language);
     }
     return [];
 }
@@ -246,6 +248,109 @@ function detectPythonStructureIssues(content: string, filePath: string): Analysi
     return errors;
 }
 
+async function analyzeJsTsAST(filePath: string, workspaceRoot: string, language: string): Promise<ASTAnalysisResult[]> {
+    const results: ASTAnalysisResult[] = [];
+    const fullPath = path.join(workspaceRoot, filePath);
+    const executionTime = Date.now();
+
+    try {
+        const content = fs.readFileSync(fullPath, 'utf-8');
+        const errors: AnalysisError[] = [];
+        const lines = content.split('\n');
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const lineNum = i + 1;
+            const trimmed = line.trim();
+
+            if (trimmed === '' || trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
+                continue;
+            }
+
+            if (line.match(/var\s+\w+\s*=\s*null/)) {
+                errors.push({
+                    line: lineNum,
+                    message: 'Use explicit type instead of "var" for null assignments',
+                    code: 'JSTS_AST001',
+                    severity: 'warning',
+                    file: filePath,
+                });
+            }
+
+            if (line.match(/==\s*(null|undefined)/)) {
+                errors.push({
+                    line: lineNum,
+                    message: 'Use === or !== for strict equality comparison',
+                    code: 'JSTS_AST002',
+                    severity: 'warning',
+                    file: filePath,
+                });
+            }
+
+            if (line.match(/console\.log\(/) && !line.includes('//')) {
+                errors.push({
+                    line: lineNum,
+                    message: 'Remove console.log before committing',
+                    code: 'JSTS_AST003',
+                    severity: 'warning',
+                    file: filePath,
+                });
+            }
+
+            if (line.match(/TODO|FIXME|HACK/)) {
+                errors.push({
+                    line: lineNum,
+                    message: `Found "${trimmed.substring(0, 10)}..." - resolve TODO before committing`,
+                    code: 'JSTS_AST004',
+                    severity: 'warning',
+                    file: filePath,
+                });
+            }
+
+            if (line.match(/function\s+\w+\s*\([^)]*\)\s*{/) && language === 'typescript' && line.includes(':')) {
+                const funcName = line.match(/function\s+(\w+)/)?.[1];
+                if (funcName && !/^[A-Z]/.test(funcName)) {
+                    errors.push({
+                        line: lineNum,
+                        message: 'Use PascalCase for exported functions',
+                        code: 'JSTS_AST005',
+                        severity: 'info',
+                        file: filePath,
+                    });
+                }
+            }
+        }
+
+        results.push({
+            tool: 'jsts-ast',
+            success: errors.filter(e => e.severity === 'error').length === 0,
+            errors: errors.filter(e => e.severity === 'error'),
+            warnings: errors.filter(e => e.severity === 'warning'),
+            output: '',
+            executionTime: Date.now() - executionTime,
+            layer: 'ast',
+        });
+    } catch (error) {
+        results.push({
+            tool: 'jsts-ast',
+            success: false,
+            errors: [{
+                line: 1,
+                message: `Failed to analyze JS/TS AST: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                code: 'JSTS_AST010',
+                severity: 'error',
+                file: filePath,
+            }],
+            warnings: [],
+            output: '',
+            executionTime: Date.now() - executionTime,
+            layer: 'ast',
+        });
+    }
+
+    return results;
+}
+
 async function analyzeCSharpAST(filePath: string, workspaceRoot: string): Promise<ASTAnalysisResult[]> {
     const results: ASTAnalysisResult[] = [];
     const fullPath = path.join(workspaceRoot, filePath);
@@ -399,7 +504,7 @@ function detectCSharpStructureIssues(content: string, filePath: string): Analysi
 
 export function analyzeAST(
     filePath: string,
-    language: 'python' | 'csharp' | 'unknown',
+    language: 'python' | 'csharp' | 'typescript' | 'javascript' | 'unknown',
     workspaceRoot: string
 ): Promise<ASTAnalysisResult[]> {
     return analyzeWithAST(filePath, language, workspaceRoot);
